@@ -3,7 +3,7 @@ import { runSimulation } from '../lib/market/simulate'
 import type { SimulationSnapshot } from '../lib/market/simulate'
 
 interface StartMessage { type: 'start'; ticks: number }
-interface ControlMessage { type: 'pause' | 'resume' | 'newMarket' }
+interface ControlMessage { type: 'pause' | 'resume' }
 type IncomingMessage = StartMessage | ControlMessage
 
 export interface TickMessage {
@@ -22,7 +22,14 @@ let running = false
 let paused = false
 let snapshots: SimulationSnapshot[] = []
 let cursor = 0
-let ticks = 250
+let streamTimer: ReturnType<typeof setTimeout> | null = null
+
+function cancelStream() {
+  if (streamTimer !== null) {
+    clearTimeout(streamTimer)
+    streamTimer = null
+  }
+}
 
 function streamTicks() {
   if (!running || paused) return
@@ -37,46 +44,38 @@ function streamTicks() {
     } satisfies TickMessage)
 
     cursor++
-    const delay = cursor < 10 ? 50 : 150 // fast start, then slower
-    setTimeout(streamTicks, delay)
-  } else {
-    // Simulation done, generate new market after a pause
-    setTimeout(() => {
-      if (running && !paused) {
-        startNewSimulation()
-      }
-    }, 3000)
+    const delay = cursor < 10 ? 50 : 150
+    streamTimer = setTimeout(streamTicks, delay)
   }
-}
-
-function startNewSimulation() {
-  self.postMessage({ type: 'training', progress: 0 } satisfies TrainMessage)
-
-  const market = generateMarket(ticks)
-
-  self.postMessage({ type: 'training', progress: 0.5 } satisfies TrainMessage)
-
-  snapshots = runSimulation(market)
-  cursor = 0
-
-  self.postMessage({ type: 'training', progress: 1 } satisfies TrainMessage)
-
-  streamTicks()
+  // Done — stay on final state
 }
 
 self.onmessage = (e: MessageEvent<IncomingMessage>) => {
   const msg = e.data
 
   switch (msg.type) {
-    case 'start':
-      ticks = msg.ticks
+    case 'start': {
+      const ticks = Math.max(50, Math.min(500, msg.ticks))
       running = true
       paused = false
-      startNewSimulation()
+      cancelStream()
+
+      self.postMessage({ type: 'training', progress: 0 } satisfies TrainMessage)
+
+      const market = generateMarket(ticks)
+      self.postMessage({ type: 'training', progress: 0.5 } satisfies TrainMessage)
+
+      snapshots = runSimulation(market)
+      cursor = 0
+      self.postMessage({ type: 'training', progress: 1 } satisfies TrainMessage)
+
+      streamTicks()
       break
+    }
 
     case 'pause':
       paused = true
+      cancelStream()
       break
 
     case 'resume':
@@ -84,11 +83,6 @@ self.onmessage = (e: MessageEvent<IncomingMessage>) => {
         paused = false
         streamTicks()
       }
-      break
-
-    case 'newMarket':
-      cursor = snapshots.length // stop current stream
-      startNewSimulation()
       break
   }
 }

@@ -1,23 +1,23 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0a0a0b;
-  --color-bg-secondary: #111113;
-  --color-bg-tertiary: #1a1a1d;
-  --color-border: #2a2a2d;
-  --color-border-hover: #3a3a3d;
+  --color-bg: #09090b;
+  --color-bg-secondary: #0f0f12;
+  --color-bg-tertiary: #18181b;
+  --color-border: #27272a;
+  --color-border-hover: #3f3f46;
   --color-text-primary: #fafafa;
   --color-text-secondary: #a1a1aa;
-  --color-text-muted: #8a8a93;
-  --color-accent: #22d3ee;
-  --color-accent-dim: #0e7490;
-  --color-success: #34d399;
+  --color-text-muted: #71717a;
+  --color-accent: #a78bfa;
+  --color-accent-dim: #7c3aed;
+  --color-success: #4ade80;
   --color-warning: #fbbf24;
   --color-danger: #f87171;
 
   --font-sans: "Lato", system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", monospace;
-  --font-display: "Playfair Display", Georgia, serif;
+  --font-display: "Lato", system-ui, sans-serif;
 }
 
 @layer base {
@@ -39,7 +39,7 @@
   }
 
   a, button, [role="button"] {
-    transition: all 200ms ease-in;
+    transition: all 150ms ease-out;
   }
 
   .scrollbar-none {

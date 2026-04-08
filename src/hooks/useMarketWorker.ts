@@ -8,9 +8,7 @@ export interface WorkerState {
   totalTicks: number
   isRunning: boolean
   isTraining: boolean
-  trainProgress: number
   isComplete: boolean
-  generation: number
 }
 
 export function useMarketWorker() {
@@ -23,13 +21,17 @@ export function useMarketWorker() {
     totalTicks: 0,
     isRunning: false,
     isTraining: false,
-    trainProgress: 0,
     isComplete: false,
-    generation: 0,
   })
 
-  const start = useCallback(() => {
-    if (workerRef.current) return
+  const launch = useCallback(() => {
+    // Terminate existing worker if any
+    if (workerRef.current) {
+      workerRef.current.terminate()
+      workerRef.current = null
+    }
+
+    historyRef.current = []
 
     const worker = new Worker(
       new URL('../workers/marketWorker.ts', import.meta.url),
@@ -41,21 +43,23 @@ export function useMarketWorker() {
         const msg = e.data as TrainMessage
         if (msg.progress === 0) {
           historyRef.current = []
+          setState((s) => ({
+            ...s,
+            isTraining: true,
+            isRunning: true,
+            isComplete: false,
+          }))
+        } else if (msg.progress >= 1) {
+          setState((s) => ({ ...s, isTraining: false }))
         }
-        setState((s) => ({
-          ...s,
-          isTraining: msg.progress < 1,
-          trainProgress: msg.progress,
-          isRunning: true,
-          ...(msg.progress === 0 ? { history: [], snapshot: null, isComplete: false, generation: s.generation + 1 } : {}),
-        }))
       } else if (e.data.type === 'tick') {
         const msg = e.data as TickMessage
         historyRef.current.push(msg.snapshot)
+        const historySnapshot = historyRef.current.slice()
         setState((s) => ({
           ...s,
           snapshot: msg.snapshot,
-          history: historyRef.current,
+          history: historySnapshot,
           totalTicks: msg.totalTicks,
           isRunning: true,
           isTraining: false,
@@ -64,9 +68,16 @@ export function useMarketWorker() {
       }
     }
 
-    worker.postMessage({ type: 'start', ticks: 250 })
+    worker.postMessage({ type: 'start', ticks: 500 })
     workerRef.current = worker
-    setState((s) => ({ ...s, isRunning: true }))
+    setState({
+      snapshot: null,
+      history: [],
+      totalTicks: 0,
+      isRunning: true,
+      isTraining: true,
+      isComplete: false,
+    })
   }, [])
 
   const pause = useCallback(() => {
@@ -79,17 +90,17 @@ export function useMarketWorker() {
     setState((s) => ({ ...s, isRunning: true }))
   }, [])
 
-  const newMarket = useCallback(() => {
-    workerRef.current?.postMessage({ type: 'newMarket' })
-  }, [])
+  const restart = useCallback(() => {
+    launch()
+  }, [launch])
 
   useEffect(() => {
-    start()
+    launch()
     return () => {
       workerRef.current?.terminate()
       workerRef.current = null
     }
-  }, [start])
+  }, [launch])
 
-  return { ...state, pause, resume, newMarket }
+  return { ...state, pause, resume, restart }
 }

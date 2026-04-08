@@ -13,10 +13,10 @@ import type { Action } from '../market/types'
  */
 
 export interface TreeNode {
-  feature: number   // -1 for leaf
-  splitVal: number  // prediction if leaf
-  left: number      // offset to left child
-  right: number     // offset to right child
+  feature: number
+  splitVal: number
+  left: number
+  right: number
 }
 
 const FEATURE_NAMES = ['smaDistance', 'bbp', 'macdHist', 'stochK', 'roc'] as const
@@ -42,7 +42,6 @@ export class DecisionTree {
       return [{ feature: -1, splitVal: y[0]!, left: 0, right: 0 }]
     }
 
-    // Pick best feature by absolute correlation
     let bestFeature = 0
     let bestCorr = -1
     for (let f = 0; f < X[0]!.length; f++) {
@@ -57,7 +56,6 @@ export class DecisionTree {
     const col = X.map((row) => row[bestFeature]!)
     const splitVal = this.median(col)
 
-    // Partition
     const leftX: number[][] = [], leftY: number[] = []
     const rightX: number[][] = [], rightY: number[] = []
     for (let i = 0; i < X.length; i++) {
@@ -70,7 +68,6 @@ export class DecisionTree {
       }
     }
 
-    // If can't split, make leaf
     if (leftY.length === 0 || rightY.length === 0) {
       return [{ feature: -1, splitVal: this.median(y), left: 0, right: 0 }]
     }
@@ -100,33 +97,6 @@ export class DecisionTree {
     return 0
   }
 
-  /** Returns the path of feature splits used for the current prediction */
-  getPath(x: number[]): { feature: string; splitVal: number; went: 'left' | 'right' }[] {
-    const path: { feature: string; splitVal: number; went: 'left' | 'right' }[] = []
-    if (!this.trained) return path
-    let idx = 0
-    while (idx < this.tree.length) {
-      const node = this.tree[idx]!
-      if (node.feature === -1) break
-      const went = x[node.feature]! <= node.splitVal ? 'left' : 'right'
-      path.push({ feature: FEATURE_NAMES[node.feature] ?? `f${node.feature}`, splitVal: node.splitVal, went })
-      idx += went === 'left' ? node.left : node.right
-    }
-    return path
-  }
-
-  get depth(): number {
-    if (this.tree.length === 0) return 0
-    return this.measureDepth(0)
-  }
-
-  private measureDepth(idx: number): number {
-    if (idx >= this.tree.length) return 0
-    const node = this.tree[idx]!
-    if (node.feature === -1) return 1
-    return 1 + Math.max(this.measureDepth(idx + node.left), this.measureDepth(idx + node.right))
-  }
-
   private median(arr: number[]): number {
     const s = [...arr].sort((a, b) => a - b)
     const mid = Math.floor(s.length / 2)
@@ -148,6 +118,20 @@ export class DecisionTree {
     }
     const denom = Math.sqrt(dx * dy)
     return denom === 0 ? 0 : num / denom
+  }
+
+  getPath(x: number[]): { feature: string; splitVal: number; went: 'left' | 'right' }[] {
+    const path: { feature: string; splitVal: number; went: 'left' | 'right' }[] = []
+    if (!this.trained) return path
+    let idx = 0
+    while (idx < this.tree.length) {
+      const node = this.tree[idx]!
+      if (node.feature === -1) break
+      const went = x[node.feature]! <= node.splitVal ? 'left' : 'right'
+      path.push({ feature: FEATURE_NAMES[node.feature] ?? `f${node.feature}`, splitVal: node.splitVal, went })
+      idx += went === 'left' ? node.left : node.right
+    }
+    return path
   }
 }
 
