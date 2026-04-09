@@ -55,7 +55,7 @@ self.onmessage = (e: MessageEvent<IncomingMessage>) => {
 
   switch (msg.type) {
     case 'start': {
-      const ticks = Math.max(50, Math.min(500, msg.ticks))
+      const ticks = Math.max(50, Math.min(1009, msg.ticks))
       running = true
       paused = false
       cancelStream()

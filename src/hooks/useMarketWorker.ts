@@ -68,7 +68,7 @@ export function useMarketWorker() {
       }
     }
 
-    worker.postMessage({ type: 'start', ticks: 500 })
+    worker.postMessage({ type: 'start', ticks: 1000 })
     workerRef.current = worker
     setState({
       snapshot: null,

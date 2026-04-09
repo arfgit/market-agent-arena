@@ -18,12 +18,21 @@ export interface SimulationSnapshot {
   trainingProgress: number
 }
 
+interface Signal {
+  tick: number
+  action: Action
+  strength: number
+  explanation: string
+}
+
+const MAX_TRADES = 1000
+
 export function runSimulation(market: Tick[]): SimulationSnapshot[] {
   const prices = market.map((t) => t.price)
-  // Train on first 65% (matches ML4T in-sample convention)
   const trainEnd = Math.floor(prices.length * 0.65)
+  const testLen = prices.length - trainEnd
 
-  // === PHASE 1: Compute training data ===
+  // === PHASE 1: Training data ===
   const trainX: number[][] = []
   const trainY: number[] = []
   const trainSma: number[] = []
@@ -33,7 +42,6 @@ export function runSimulation(market: Tick[]): SimulationSnapshot[] {
   for (let i = WARMUP; i < trainEnd - 1; i++) {
     const ind = computeIndicators(prices, i)
     trainX.push([ind.smaDistance, ind.bbp, ind.macdHist, ind.stochK, ind.roc])
-    // Target: next-day return
     trainY.push((prices[i + 1]! - prices[i]!) / prices[i]!)
     trainSma.push(ind.smaDistance)
     trainBbp.push(ind.bbp)
@@ -63,7 +71,78 @@ export function runSimulation(market: Tick[]): SimulationSnapshot[] {
     }
   }
 
-  // === PHASE 3: Out-of-sample test ===
+  // === PHASE 3: Generate all signals first (dry run) ===
+  const allIndicators: IndicatorSet[] = []
+  const allFeatures: number[][] = []
+  const manualSignals: Signal[] = []
+  const dtreeSignals: Signal[] = []
+  const forestSignals: Signal[] = []
+  const qlearnerSignals: Signal[] = []
+
+  for (let i = trainEnd; i < prices.length; i++) {
+    const tick = i - trainEnd
+    const ind = computeIndicators(prices, i)
+    const features = [ind.smaDistance, ind.bbp, ind.macdHist, ind.stochK, ind.roc]
+    allIndicators.push(ind)
+    allFeatures.push(features)
+
+    // Manual: strength = how many indicators agree
+    const mAction = manualDecision(ind, 0)
+    if (mAction !== 'HOLD') {
+      const buyStr = (ind.smaDistance < -0.015 ? 1 : 0) + (ind.bbp < 0.25 ? 1 : 0) + (ind.macdHist > 0 ? 1 : 0)
+      const sellStr = (ind.smaDistance > 0.015 ? 1 : 0) + (ind.bbp > 0.75 ? 1 : 0) + (ind.macdHist < 0 ? 1 : 0)
+      manualSignals.push({ tick, action: mAction, strength: mAction === 'BUY' ? buyStr : sellStr, explanation: explainManual(ind) })
+    }
+
+    // DTree: strength = absolute prediction magnitude
+    const dtPred = dtree.predict(features)
+    const dtAction = dtreeDecision(dtPred)
+    if (dtAction !== 'HOLD') {
+      dtreeSignals.push({ tick, action: dtAction, strength: Math.abs(dtPred), explanation: explainDTree(dtree.getPath(features)) })
+    }
+
+    // Forest: strength = absolute averaged prediction
+    const forestPred = forest.predict(features)
+    const forestAction = forestDecision(forestPred)
+    if (forestAction !== 'HOLD') {
+      forestSignals.push({ tick, action: forestAction, strength: Math.abs(forestPred), explanation: explainForest(forest.getVotes(features)) })
+    }
+
+    // Q-Learner: strength = Q-value gap between best and second-best
+    const qState = indicatorToState(ind, qThresholds)
+    const qActionNum = qExploit(qlearner, qState)
+    const qAction = actionToTrade(qActionNum)
+    if (qAction !== 'HOLD') {
+      const qv = getQValues(qlearner, qState)
+      const vals = [qv.sell, qv.hold, qv.buy].sort((a, b) => b - a)
+      const gap = vals[0]! - vals[1]!
+      qlearnerSignals.push({ tick, action: qAction, strength: gap, explanation: explainQLearner(qv, getExplorationRate(qlearner)) })
+    }
+  }
+
+  // === PHASE 4: Pick top MAX_TRADES signals per strategy by strength ===
+  function pickTopSignals(signals: Signal[]): Set<number> {
+    const sorted = [...signals].sort((a, b) => b.strength - a.strength)
+    const picked = new Set<number>()
+    for (const s of sorted) {
+      if (picked.size >= MAX_TRADES) break
+      picked.add(s.tick)
+    }
+    return picked
+  }
+
+  const manualTrades = pickTopSignals(manualSignals)
+  const dtreeTrades = pickTopSignals(dtreeSignals)
+  const forestTrades = pickTopSignals(forestSignals)
+  const qlearnerTrades = pickTopSignals(qlearnerSignals)
+
+  // Build lookup maps for explanations
+  const manualExplMap = new Map(manualSignals.map((s) => [s.tick, s]))
+  const dtreeExplMap = new Map(dtreeSignals.map((s) => [s.tick, s]))
+  const forestExplMap = new Map(forestSignals.map((s) => [s.tick, s]))
+  const qlearnerExplMap = new Map(qlearnerSignals.map((s) => [s.tick, s]))
+
+  // === PHASE 5: Execute trades and build snapshots ===
   const portfolios = {
     manual: createPortfolio(),
     dtree: createPortfolio(),
@@ -75,33 +154,31 @@ export function runSimulation(market: Tick[]): SimulationSnapshot[] {
   let benchmarkBought = false
   const snapshots: SimulationSnapshot[] = []
 
-  for (let i = trainEnd; i < prices.length; i++) {
+  for (let t = 0; t < testLen; t++) {
+    const i = trainEnd + t
     const price = prices[i]!
-    const ind = computeIndicators(prices, i)
-    const features = [ind.smaDistance, ind.bbp, ind.macdHist, ind.stochK, ind.roc]
+    const ind = allIndicators[t]!
 
-    const manualAction = manualDecision(ind, portfolios.manual.shares)
+    // Execute only if this tick is in the strategy's top signals
+    const mSig = manualTrades.has(t) ? manualExplMap.get(t)! : null
+    const manualAction: Action = mSig ? mSig.action : 'HOLD'
     step(portfolios.manual, manualAction, price)
-    const manualExpl = explainManual(ind)
+    const manualExpl = mSig ? mSig.explanation : explainManual(ind)
 
-    const dtPred = dtree.predict(features)
-    const dtAction = dtreeDecision(dtPred)
+    const dtSig = dtreeTrades.has(t) ? dtreeExplMap.get(t)! : null
+    const dtAction: Action = dtSig ? dtSig.action : 'HOLD'
     step(portfolios.dtree, dtAction, price)
-    const dtPath = dtree.getPath(features)
-    const dtExpl = explainDTree(dtPath)
+    const dtExpl = dtSig ? dtSig.explanation : 'Holding (not in top signals)'
 
-    const forestPred = forest.predict(features)
-    const forestAction = forestDecision(forestPred)
+    const fSig = forestTrades.has(t) ? forestExplMap.get(t)! : null
+    const forestAction: Action = fSig ? fSig.action : 'HOLD'
     step(portfolios.forest, forestAction, price)
-    const votes = forest.getVotes(features)
-    const forestExpl = explainForest(votes)
+    const forestExpl = fSig ? fSig.explanation : 'Holding (not in top signals)'
 
-    const qState = indicatorToState(ind, qThresholds)
-    const qActionNum = qExploit(qlearner, qState)
-    const qAction = actionToTrade(qActionNum)
+    const qSig = qlearnerTrades.has(t) ? qlearnerExplMap.get(t)! : null
+    const qAction: Action = qSig ? qSig.action : 'HOLD'
     step(portfolios.qlearner, qAction, price)
-    const qValues = getQValues(qlearner, qState)
-    const qExpl = explainQLearner(qValues, getExplorationRate(qlearner))
+    const qExpl = qSig ? qSig.explanation : 'Holding (not in top signals)'
 
     let benchAction: Action = 'HOLD'
     if (!benchmarkBought) {
@@ -129,7 +206,7 @@ export function runSimulation(market: Tick[]): SimulationSnapshot[] {
     })
 
     snapshots.push({
-      tick: i - trainEnd,
+      tick: t,
       price,
       regime: market[i]!.regime,
       indicators: ind,
