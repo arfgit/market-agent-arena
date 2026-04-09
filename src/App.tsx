@@ -46,6 +46,11 @@ export default function App() {
               Read about the course that inspired this project
             </a>
           </p>
+          <p className="text-[11px] text-text-muted mt-3 max-w-xl leading-relaxed">
+            Built by{' '}
+            <a href="https://anthonyfeliz.com" target="_blank" rel="noopener noreferrer" className="text-text-secondary hover:text-accent">Anthony Feliz</a>
+            {' '}&mdash; software engineer exploring machine learning and intelligent agent systems through Georgia Tech's MSCS program.
+          </p>
         </motion.div>
 
         <Dashboard />

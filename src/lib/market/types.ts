@@ -6,6 +6,7 @@ export interface Tick {
   t: number
   price: number
   regime: Regime
+  date: string
 }
 
 export interface IndicatorSet {

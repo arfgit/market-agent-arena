@@ -112,13 +112,13 @@ export default function PriceChart({ history, snapshot, isRunning, isTraining }:
         <div className="flex items-center gap-2">
           <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${isRunning ? 'bg-accent animate-pulse' : 'bg-text-muted'}`} />
           <span className="text-[10px] text-text-muted tracking-wide">JPM</span>
+          <span className="text-[10px] text-text-muted tabular-nums">{snapshot.date}</span>
         </div>
         <div className="flex items-center gap-3 text-[10px]">
           <span className={`font-semibold ${regimeColorClass}`}>{regimeTag}</span>
           <span className={`font-semibold tabular-nums ${chartData.isUp ? 'text-success' : 'text-danger'}`}>
             ${chartData.last.toFixed(2)} ({chartData.isUp ? '+' : ''}{chartData.totalRet}%)
           </span>
-          <span className="text-text-muted tabular-nums">t={history.length}</span>
         </div>
       </div>
 

@@ -12,6 +12,7 @@ import {
 export interface SimulationSnapshot {
   tick: number
   price: number
+  date: string
   regime: string
   indicators: IndicatorSet
   strategies: StrategyResult[]
@@ -208,6 +209,7 @@ export function runSimulation(market: Tick[]): SimulationSnapshot[] {
     snapshots.push({
       tick: t,
       price,
+      date: market[i]!.date,
       regime: market[i]!.regime,
       indicators: ind,
       strategies: [

@@ -33,7 +33,7 @@ export function generateMarket(ticks: number): Tick[] {
       else regime = 'sideways'
     }
 
-    out.push({ t: i - offset, price, regime })
+    out.push({ t: i - offset, price, regime, date: entry.date })
   }
 
   return out
